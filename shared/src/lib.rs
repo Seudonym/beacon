@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum ClientEvent {
-    SendMessage { room_id: String, text: String },
+    SendMessage { text: String },
     JoinChannel { room_id: String },
 }
 

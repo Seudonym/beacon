@@ -1,14 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use axum::{
-    Router,
-    extract::{Path, State, WebSocketUpgrade, ws::WebSocket},
+    extract::{
+        ws::{Message, WebSocket},
+        Path, State, WebSocketUpgrade,
+    },
     response::IntoResponse,
     routing::get,
+    Router,
 };
 use futures_util::{SinkExt, StreamExt};
-use shared::ServerEvent;
-use tokio::sync::{RwLock, broadcast};
+use shared::{ClientEvent, ServerEvent};
+use tokio::sync::{broadcast, RwLock};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
@@ -53,6 +56,7 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
         rooms.get(&room).cloned()
     };
 
+    // if channel doesnt exist, insert it and acquire channel
     let tx = match tx {
         Some(tx) => tx,
         None => {
@@ -67,7 +71,7 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
         }
     };
 
-    let rx = tx.subscribe();
+    let mut rx = tx.subscribe();
 
     // split the socket into sender and reciever
     let (mut ws_sender, mut ws_reciever) = socket.split();
@@ -86,10 +90,41 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
     info!(
         "Send join notification to user_id: {} in room: {}",
         user_id, room
-    )
+    );
 
     // configure the ws_sender to send messages from rx
+    let send_task = tokio::spawn(async move {
+        while let Ok(msg) = rx.recv().await {
+            let send = ws_sender.send(Message::Text(msg.into())).await;
+            if send.is_err() {
+                break;
+            }
+        }
+    });
+
     // configure ws_reciever to recieve messages and send to tx
+    let recv_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = ws_reciever.next().await {
+            match msg {
+                Message::Text(text) => {
+                    let client_event = serde_json::from_str::<ClientEvent>(&text).unwrap();
+                    match client_event {
+                        ClientEvent::SendMessage { text } => {
+                            let broadcast_msg =
+                                serde_json::to_string(&ServerEvent::NewMessage { message: text })
+                                    .unwrap();
+                            let _ = tx.send(broadcast_msg);
+                        }
+                        _ => {}
+                    }
+                }
+                Message::Close(_) => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
 
     // cleanup when any task ends
 }
