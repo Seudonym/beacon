@@ -88,12 +88,12 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
         .await;
 
     info!(
-        "Send join notification to user_id: {} in room: {}",
+        "Sent join notification to user_id: {} in room: {}",
         user_id, room
     );
 
     // configure the ws_sender to send messages from rx
-    let send_task = tokio::spawn(async move {
+    let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
             let send = ws_sender.send(Message::Text(msg.into())).await;
             if send.is_err() {
@@ -103,7 +103,7 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
     });
 
     // configure ws_reciever to recieve messages and send to tx
-    let recv_task = tokio::spawn(async move {
+    let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = ws_reciever.next().await {
             match msg {
                 Message::Text(text) => {
@@ -127,4 +127,10 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
     });
 
     // cleanup when any task ends
+    tokio::select! {
+        _ = &mut recv_task => send_task.abort(),
+        _ = &mut send_task=> recv_task.abort()
+    }
+
+    info!("user_id: {} disconnected from room: {}", user_id, room);
 }
