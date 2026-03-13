@@ -10,7 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use shared::ServerEvent;
 use tokio::sync::{RwLock, broadcast};
 use tracing::info;
-use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -22,7 +22,8 @@ pub struct AppState {
 async fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
-        .with(tracing_subscriber::EnvFilter::from_default_env());
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
 
     let state = AppState {
         rooms: Arc::new(RwLock::new(HashMap::new())),
