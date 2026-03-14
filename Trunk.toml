@@ -1,0 +1,8 @@
+[build]
+target = "index.html"
+
+[tools]
+tailwindcss = "4.0.17"
+
+[watch]
+ignore = ["./dist", "./target"]

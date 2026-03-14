@@ -23,5 +23,5 @@ web-sys = { version = "0.3", features = [
 
 [workspace]
 members = ["backend", "shared"]
-default-members = [".", "backend"]
+default-members = ["."]
 resolver = "2"
