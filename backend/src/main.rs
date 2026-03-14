@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::Context;
 use axum::{
     Router,
     extract::{
@@ -22,7 +23,7 @@ pub struct AppState {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
         .with(tracing_subscriber::EnvFilter::from_default_env())
@@ -36,9 +37,18 @@ async fn main() {
         .route("/chat/{room}", get(ws_handler))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    tracing::info!("Server listening on ws://0.0.0.0:3000");
-    axum::serve(listener, router).await.unwrap();
+    let address = "0.0.0.0:3000";
+    let listener = tokio::net::TcpListener::bind(address)
+        .await
+        .with_context(|| format!("failed to bind tcp listener on {address}"))?;
+
+    info!(address, "chat server listening");
+
+    axum::serve(listener, router)
+        .await
+        .context("axum server exited unexpectedly")?;
+
+    Ok(())
 }
 
 async fn ws_handler(
@@ -85,10 +95,7 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState) {
     .unwrap();
     let _ = tx.send(join_msg);
 
-    info!(
-        "Sent join notification to user_id: {} in room: {}",
-        &user_id, &room_id
-    );
+    info!(%user_id, %room_id, "user joined room");
 
     // configure the ws_sender to send messages from rx
     let mut send_task = tokio::spawn(async move {
@@ -148,5 +155,5 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState) {
     .unwrap();
     let _ = tx.send(leave_msg);
 
-    info!("user_id: {} disconnected from room: {}", &user_id, &room_id);
+    info!(%user_id, %room_id, "user disconnected");
 }
