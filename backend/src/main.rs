@@ -10,7 +10,7 @@ use axum::{
     routing::get,
 };
 use futures_util::{SinkExt, StreamExt};
-use shared::{ClientEvent, ServerEvent};
+use shared::{ChatMessage, ClientEvent, ServerEvent};
 use tokio::sync::{RwLock, broadcast};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -43,17 +43,17 @@ async fn main() {
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
-    Path(room): Path<String>,
+    Path(room_id): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, room, state))
+    ws.on_upgrade(move |socket| handle_socket(socket, room_id, state))
 }
 
-async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
+async fn handle_socket(socket: WebSocket, room_id: String, state: AppState) {
     // check if just read is enough, else try write to insert channel
     let tx = {
         let rooms = state.rooms.read().await;
-        rooms.get(&room).cloned()
+        rooms.get(&room_id).cloned()
     };
 
     // if channel doesnt exist, insert it and acquire channel
@@ -62,7 +62,7 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
         None => {
             let mut rooms = state.rooms.write().await;
             rooms
-                .entry(room.clone())
+                .entry(room_id.clone())
                 .or_insert_with(|| {
                     let (tx, _) = broadcast::channel(64);
                     tx
@@ -80,16 +80,14 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
     let user_id = Uuid::new_v4().to_string();
     let join_msg = serde_json::to_string(&ServerEvent::UserJoined {
         user_id: user_id.clone(),
-        room_id: room.clone(),
+        room_id: room_id.clone(),
     })
     .unwrap();
-    let _ = ws_sender
-        .send(axum::extract::ws::Message::Text(join_msg.into()))
-        .await;
+    let _ = tx.send(join_msg);
 
     info!(
         "Sent join notification to user_id: {} in room: {}",
-        user_id, room
+        &user_id, &room_id
     );
 
     // configure the ws_sender to send messages from rx
@@ -103,17 +101,28 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
     });
 
     // configure ws_reciever to recieve messages and send to tx
+    let recv_tx = tx.clone();
+    let recv_user_id = user_id.clone();
+    let recv_room_id = room_id.clone();
     let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = ws_reciever.next().await {
             match msg {
                 Message::Text(text) => {
                     let client_event = serde_json::from_str::<ClientEvent>(&text).unwrap();
+                    let message_id = Uuid::new_v4().to_string();
                     match client_event {
                         ClientEvent::SendMessage { text } => {
-                            let broadcast_msg =
-                                serde_json::to_string(&ServerEvent::NewMessage { message: text })
-                                    .unwrap();
-                            let _ = tx.send(broadcast_msg);
+                            let broadcast_msg = serde_json::to_string(&ServerEvent::NewMessage {
+                                message: ChatMessage::new(
+                                    message_id,
+                                    recv_user_id.clone(),
+                                    recv_room_id.clone(),
+                                    chrono::Utc::now().to_rfc3339(),
+                                    text,
+                                ),
+                            })
+                            .unwrap();
+                            let _ = recv_tx.send(broadcast_msg);
                         }
                         _ => {}
                     }
@@ -132,5 +141,12 @@ async fn handle_socket(socket: WebSocket, room: String, state: AppState) {
         _ = &mut send_task=> recv_task.abort()
     }
 
-    info!("user_id: {} disconnected from room: {}", user_id, room);
+    let leave_msg = serde_json::to_string(&ServerEvent::UserLeft {
+        user_id: user_id.clone(),
+        room_id: room_id.clone(),
+    })
+    .unwrap();
+    let _ = tx.send(leave_msg);
+
+    info!("user_id: {} disconnected from room: {}", &user_id, &room_id);
 }
