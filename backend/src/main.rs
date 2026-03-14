@@ -13,7 +13,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use shared::{ChatMessage, ClientEvent, ServerEvent};
 use tokio::sync::{RwLock, broadcast};
-use tracing::info;
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
@@ -88,12 +88,21 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState) {
 
     // send join notification
     let user_id = Uuid::new_v4().to_string();
-    let join_msg = serde_json::to_string(&ServerEvent::UserJoined {
+
+    let join_msg = match serde_json::to_string(&ServerEvent::UserJoined {
         user_id: user_id.clone(),
         room_id: room_id.clone(),
-    })
-    .unwrap();
-    let _ = tx.send(join_msg);
+    }) {
+        Ok(msg) => msg,
+        Err(err) => {
+            error!(%err, %user_id, %room_id, "failed to serialize join event");
+            return;
+        }
+    };
+
+    if let Err(err) = tx.send(join_msg) {
+        warn!(%err, %user_id, %room_id, "failed to broadcast join event");
+    }
 
     info!(%user_id, %room_id, "user joined room");
 
@@ -112,23 +121,48 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState) {
     let recv_user_id = user_id.clone();
     let recv_room_id = room_id.clone();
     let mut recv_task = tokio::spawn(async move {
+        // keep fetching from client
         while let Some(Ok(msg)) = ws_reciever.next().await {
             match msg {
                 Message::Text(text) => {
-                    let client_event = serde_json::from_str::<ClientEvent>(&text).unwrap();
+                    let client_event = match serde_json::from_str::<ClientEvent>(&text) {
+                        Ok(event) => event,
+                        Err(err) => {
+                            warn!(
+                                %err,
+                                %recv_user_id,
+                                %recv_room_id,
+                                raw = %text,
+                                "failed to parse client event"
+                            );
+                            continue;
+                        }
+                    };
+
                     let message_id = Uuid::new_v4().to_string();
                     match client_event {
                         ClientEvent::SendMessage { text } => {
-                            let broadcast_msg = serde_json::to_string(&ServerEvent::NewMessage {
-                                message: ChatMessage::new(
-                                    message_id,
-                                    recv_user_id.clone(),
-                                    recv_room_id.clone(),
-                                    chrono::Utc::now().to_rfc3339(),
-                                    text,
-                                ),
-                            })
-                            .unwrap();
+                            let broadcast_msg =
+                                match serde_json::to_string(&ServerEvent::NewMessage {
+                                    message: ChatMessage::new(
+                                        message_id,
+                                        recv_user_id.clone(),
+                                        recv_room_id.clone(),
+                                        chrono::Utc::now().to_rfc3339(),
+                                        text,
+                                    ),
+                                }) {
+                                    Ok(msg) => msg,
+                                    Err(err) => {
+                                        error!(
+                                            %err,
+                                            %recv_user_id,
+                                            %recv_room_id,
+                                            "failed to deserialize send message event"
+                                        );
+                                        continue;
+                                    }
+                                };
                             let _ = recv_tx.send(broadcast_msg);
                         }
                         _ => {}
@@ -148,11 +182,17 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState) {
         _ = &mut send_task=> recv_task.abort()
     }
 
-    let leave_msg = serde_json::to_string(&ServerEvent::UserLeft {
+    let leave_msg = match serde_json::to_string(&ServerEvent::UserLeft {
         user_id: user_id.clone(),
         room_id: room_id.clone(),
-    })
-    .unwrap();
+    }) {
+        Ok(msg) => msg,
+        Err(err) => {
+            error!(%err, %user_id, %room_id, "failed to serialize join event");
+            return;
+        }
+    };
+
     let _ = tx.send(leave_msg);
 
     info!(%user_id, %room_id, "user disconnected");

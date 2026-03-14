@@ -40,5 +40,4 @@ pub enum ServerEvent {
     NewMessage { message: ChatMessage },
     UserJoined { user_id: String, room_id: String },
     UserLeft { user_id: String, room_id: String },
-    Error { message: String },
 }
