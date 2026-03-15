@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use anyhow::Context;
 use axum::{
@@ -12,6 +12,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use shared::{ChatMessage, ClientEvent, ServerEvent};
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use tokio::sync::{RwLock, broadcast};
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -20,17 +21,26 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub rooms: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
+    pub db: SqlitePool,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // setup logging
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
         .with(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
+    // setup db and run migrations
+    let options = SqliteConnectOptions::from_str("sqlite://app.db")?.create_if_missing(true);
+    let db = SqlitePool::connect_with(options).await?;
+    sqlx::migrate!("./migrations").run(&db).await?;
+
+    // setup app state
     let state = AppState {
         rooms: Arc::new(RwLock::new(HashMap::new())),
+        db: db,
     };
 
     let router = Router::new()
