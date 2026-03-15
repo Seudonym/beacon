@@ -2,20 +2,26 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use anyhow::Context;
 use axum::{
-    Router,
+    Form, Router,
     extract::{
         Path, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
     },
-    response::IntoResponse,
-    routing::get,
+    http::StatusCode,
+    response::{IntoResponse, Redirect},
+    routing::{get, post},
 };
-use axum_login::{AuthUser, AuthnBackend};
+use axum_login::{AuthManagerLayerBuilder, AuthSession, AuthUser, AuthnBackend};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use shared::{ChatMessage, ClientEvent, ServerEvent};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use tokio::sync::{RwLock, broadcast};
+use tower_sessions::{
+    Expiry, SessionManagerLayer,
+    cookie::{Key, time::Duration},
+};
+use tower_sessions_sqlx_store::SqliteStore;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
@@ -89,6 +95,8 @@ impl AuthnBackend for Backend {
     }
 }
 
+type AppAuthSession = AuthSession<Backend>;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // setup logging
@@ -102,6 +110,19 @@ async fn main() -> anyhow::Result<()> {
     let db = SqlitePool::connect_with(options).await?;
     sqlx::migrate!("./migrations").run(&db).await?;
 
+    // setup sessions
+    let session_store = SqliteStore::new(db.clone());
+    session_store.migrate().await?;
+    // ! CHANGE THIS FOR PROD
+    let secret = [0; 64];
+    let session_manager_layer = SessionManagerLayer::new(session_store)
+        .with_private(Key::from(&secret))
+        .with_secure(false)
+        .with_expiry(Expiry::OnInactivity(Duration::hours(1)));
+
+    let backend = Backend { db: db.clone() };
+    let auth_layer = AuthManagerLayerBuilder::new(backend, session_manager_layer).build();
+
     // setup app state
     let state = AppState {
         rooms: Arc::new(RwLock::new(HashMap::new())),
@@ -109,7 +130,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let router = Router::new()
+        .route("/login", post(login))
+        .route("/logout", post(logout))
+        .route("/me", get(me))
         .route("/chat/{room}", get(ws_handler))
+        .layer(auth_layer)
         .with_state(state);
 
     let address = "0.0.0.0:3000";
@@ -124,6 +149,35 @@ async fn main() -> anyhow::Result<()> {
         .context("axum server exited unexpectedly")?;
 
     Ok(())
+}
+
+async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> impl IntoResponse {
+    let user = match auth.authenticate(creds).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    if auth.login(&user).await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    Redirect::to("/me").into_response()
+}
+
+async fn logout(mut auth: AppAuthSession) -> impl IntoResponse {
+    if auth.logout().await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn me(mut auth: AppAuthSession) -> impl IntoResponse {
+    match auth.user {
+        Some(user) => format!("Hello {}", user.username).into_response(),
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    }
 }
 
 async fn ws_handler(
