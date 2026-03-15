@@ -10,7 +10,9 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use axum_login::{AuthUser, AuthnBackend};
 use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 use shared::{ChatMessage, ClientEvent, ServerEvent};
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use tokio::sync::{RwLock, broadcast};
@@ -22,6 +24,69 @@ use uuid::Uuid;
 pub struct AppState {
     pub rooms: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
     pub db: SqlitePool,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct User {
+    id: String,
+    username: String,
+    password_hash: String,
+}
+
+impl AuthUser for User {
+    type Id = String;
+    fn id(&self) -> Self::Id {
+        self.id.clone()
+    }
+    fn session_auth_hash(&self) -> &[u8] {
+        self.password_hash.as_bytes()
+    }
+}
+
+#[derive(Clone, Deserialize)]
+struct Credentials {
+    username: String,
+    password: String,
+}
+
+#[derive(Clone)]
+struct Backend {
+    db: SqlitePool,
+}
+
+impl AuthnBackend for Backend {
+    type Credentials = Credentials;
+    type Error = sqlx::Error;
+    type User = User;
+    async fn authenticate(
+        &self,
+        creds: Self::Credentials,
+    ) -> Result<Option<Self::User>, Self::Error> {
+        let user = sqlx::query_as::<_, User>(
+            "select id, username, password_hash from users where username = ?",
+        )
+        .bind(&creds.username)
+        .fetch_optional(&self.db)
+        .await?;
+
+        let Some(user) = user else {
+            return Ok(None);
+        };
+
+        let valid = password_auth::verify_password(&creds.password, &user.password_hash).is_ok();
+
+        Ok(valid.then_some(user))
+    }
+
+    async fn get_user(
+        &self,
+        user_id: &axum_login::UserId<Self>,
+    ) -> Result<Option<Self::User>, Self::Error> {
+        sqlx::query_as::<_, User>("select id, username, password_hash from users where id = ?")
+            .bind(user_id)
+            .fetch_optional(&self.db)
+            .await
+    }
 }
 
 #[tokio::main]
