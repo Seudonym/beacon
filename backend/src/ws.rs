@@ -18,10 +18,10 @@ use crate::{
 };
 
 pub async fn ws_handler(
+    auth: AppAuthSession,
     ws: WebSocketUpgrade,
     Path(room_id): Path<String>,
     State(state): State<AppState>,
-    auth: AppAuthSession,
 ) -> impl IntoResponse {
     // reject unauthenticated mfs
     let user = match auth.user {
