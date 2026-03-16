@@ -29,7 +29,6 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub rooms: Arc<RwLock<HashMap<String, broadcast::Sender<String>>>>,
-    pub db: SqlitePool,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -99,6 +98,8 @@ type AppAuthSession = AuthSession<Backend>;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // setup env
+    dotenvy::dotenv()?;
     // setup logging
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
@@ -110,11 +111,16 @@ async fn main() -> anyhow::Result<()> {
     let db = SqlitePool::connect_with(options).await?;
     sqlx::migrate!("./migrations").run(&db).await?;
 
-    // setup sessions
+    // setup session store
     let session_store = SqliteStore::new(db.clone());
     session_store.migrate().await?;
-    // ! CHANGE THIS FOR PROD
-    let secret = [0; 64];
+
+    // setup session manager layer with session secret
+    let session_secret = std::env::var("SESSION_SECRET").context("SESSION_SECRET must be set")?;
+    let secret: [u8; 64] = session_secret
+        .as_bytes()
+        .try_into()
+        .context("SESSION_SECRET must be exactly 64 bytes")?;
     let session_manager_layer = SessionManagerLayer::new(session_store)
         .with_private(Key::from(&secret))
         .with_secure(false)
@@ -126,7 +132,6 @@ async fn main() -> anyhow::Result<()> {
     // setup app state
     let state = AppState {
         rooms: Arc::new(RwLock::new(HashMap::new())),
-        db: db,
     };
 
     let router = Router::new()
@@ -173,7 +178,7 @@ async fn logout(mut auth: AppAuthSession) -> impl IntoResponse {
     StatusCode::NO_CONTENT.into_response()
 }
 
-async fn me(mut auth: AppAuthSession) -> impl IntoResponse {
+async fn me(auth: AppAuthSession) -> impl IntoResponse {
     match auth.user {
         Some(user) => format!("Hello {}", user.username).into_response(),
         None => return StatusCode::UNAUTHORIZED.into_response(),
@@ -184,11 +189,18 @@ async fn ws_handler(
     ws: WebSocketUpgrade,
     Path(room_id): Path<String>,
     State(state): State<AppState>,
+    auth: AppAuthSession,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, room_id, state))
+    // reject unauthenticated mfs
+    let user = match auth.user {
+        Some(user) => user,
+        None => return StatusCode::UNAUTHORIZED.into_response(),
+    };
+
+    ws.on_upgrade(move |socket| handle_socket(socket, room_id, state, user))
 }
 
-async fn handle_socket(socket: WebSocket, room_id: String, state: AppState) {
+async fn handle_socket(socket: WebSocket, room_id: String, state: AppState, user: User) {
     // check if just read is enough, else try write to insert channel
     let tx = {
         let rooms = state.rooms.read().await;
@@ -216,7 +228,7 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState) {
     let (mut ws_sender, mut ws_reciever) = socket.split();
 
     // send join notification
-    let user_id = Uuid::new_v4().to_string();
+    let user_id = user.id;
 
     let join_msg = match serde_json::to_string(&ServerEvent::UserJoined {
         user_id: user_id.clone(),
