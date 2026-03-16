@@ -135,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let router = Router::new()
+        .route("/register", post(register))
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/me", get(me))
@@ -154,6 +155,35 @@ async fn main() -> anyhow::Result<()> {
         .context("axum server exited unexpectedly")?;
 
     Ok(())
+}
+
+async fn register(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> impl IntoResponse {
+    let user = User {
+        id: Uuid::new_v4().to_string(),
+        username: creds.username,
+        password_hash: password_auth::generate_hash(&creds.password),
+    };
+
+    let result = sqlx::query("insert into users (id, username, password_hash) values (?, ?, ?)")
+        .bind(&user.id)
+        .bind(&user.username)
+        .bind(&user.password_hash)
+        .execute(&auth.backend.db)
+        .await;
+
+    match result {
+        Ok(_) => {}
+        Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {
+            return StatusCode::CONFLICT.into_response();
+        }
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    if auth.login(&user).await.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    Redirect::to("/me").into_response()
 }
 
 async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> impl IntoResponse {
