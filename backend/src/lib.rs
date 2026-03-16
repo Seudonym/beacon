@@ -61,3 +61,225 @@ pub fn session_secret_from_env() -> anyhow::Result<[u8; 64]> {
         .try_into()
         .context("SESSION_SECRET must be exactly 64 bytes")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{build_app, connect_db};
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode, header},
+    };
+    use tokio::task::JoinHandle;
+    use tokio_tungstenite::{connect_async, tungstenite::Error as WsError};
+    use tower::ServiceExt;
+
+    fn test_secret() -> [u8; 64] {
+        *b"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+
+    async fn test_app() -> axum::Router {
+        let db_path = format!("/tmp/beacon-test-{}.db", uuid::Uuid::new_v4());
+        let db = connect_db(&format!("sqlite://{db_path}"))
+            .await
+            .expect("connect test db");
+        build_app(db, test_secret()).await.expect("build test app")
+    }
+
+    async fn spawn_test_server() -> (String, JoinHandle<()>) {
+        let app = test_app().await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind test listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve test app");
+        });
+        (format!("ws://{addr}"), handle)
+    }
+
+    fn cookie_header(response: &axum::response::Response) -> String {
+        response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .find_map(|value| value.to_str().ok().map(str::to_owned))
+            .expect("set-cookie header")
+    }
+
+    #[tokio::test]
+    async fn register_logs_user_in_and_me_returns_user() {
+        let app = test_app().await;
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/register")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from("username=alice&password=secret123"))
+                    .expect("register request"),
+            )
+            .await
+            .expect("register response");
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let cookie = cookie_header(&response);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/me")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .expect("me request"),
+            )
+            .await
+            .expect("me response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read me body");
+        assert_eq!(
+            std::str::from_utf8(&body).expect("utf8 body"),
+            "Hello alice"
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_register_returns_conflict() {
+        let app = test_app().await;
+
+        let first = Request::builder()
+            .method("POST")
+            .uri("/register")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=alice&password=secret123"))
+            .expect("first register request");
+
+        let response = app.clone().oneshot(first).await.expect("first register");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let second = Request::builder()
+            .method("POST")
+            .uri("/register")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=alice&password=secret123"))
+            .expect("second register request");
+
+        let response = app.oneshot(second).await.expect("second register");
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn login_rejects_wrong_password() {
+        let app = test_app().await;
+
+        let register = Request::builder()
+            .method("POST")
+            .uri("/register")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=alice&password=secret123"))
+            .expect("register request");
+        let response = app.clone().oneshot(register).await.expect("register");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let login = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=alice&password=wrongpass"))
+            .expect("login request");
+        let response = app.oneshot(login).await.expect("login");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn login_succeeds_and_sets_session_cookie() {
+        let app = test_app().await;
+
+        let register = Request::builder()
+            .method("POST")
+            .uri("/register")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=alice&password=secret123"))
+            .expect("register request");
+        let response = app.clone().oneshot(register).await.expect("register");
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let cookie = cookie_header(&response);
+
+        let logout = Request::builder()
+            .method("POST")
+            .uri("/logout")
+            .header(header::COOKIE, cookie)
+            .body(Body::empty())
+            .expect("logout request");
+        let response = app.clone().oneshot(logout).await.expect("logout");
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let login = Request::builder()
+            .method("POST")
+            .uri("/login")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body(Body::from("username=alice&password=secret123"))
+            .expect("login request");
+        let response = app.clone().oneshot(login).await.expect("login");
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+
+        let cookie = cookie_header(&response);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/me")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())
+                    .expect("me request"),
+            )
+            .await
+            .expect("me response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read me body");
+        assert_eq!(
+            std::str::from_utf8(&body).expect("utf8 body"),
+            "Hello alice"
+        );
+    }
+
+    #[tokio::test]
+    async fn me_requires_session() {
+        let app = test_app().await;
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/me")
+                    .body(Body::empty())
+                    .expect("me request"),
+            )
+            .await
+            .expect("me response");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn websocket_upgrade_requires_session() {
+        let (base_url, server) = spawn_test_server().await;
+
+        let result = connect_async(format!("{base_url}/chat/test-room")).await;
+        server.abort();
+
+        match result {
+            Err(WsError::Http(response)) => assert_eq!(response.status(), StatusCode::UNAUTHORIZED),
+            other => panic!("expected unauthorized websocket handshake failure, got {other:?}"),
+        }
+    }
+}
