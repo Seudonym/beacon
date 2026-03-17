@@ -1,10 +1,11 @@
 use axum::{
-    Form,
+    Form, Json,
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
 use axum_login::{AuthSession, AuthUser, AuthnBackend};
 use serde::Deserialize;
+use serde_json::json;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -77,10 +78,22 @@ pub async fn register(
     mut auth: AppAuthSession,
     Form(creds): Form<Credentials>,
 ) -> impl IntoResponse {
+    let username = creds.username.trim().to_string();
+    let password = creds.password;
+
+    // input validation
+    if username.is_empty() || username.len() > 32 || password.len() < 8 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid username or password"})),
+        )
+            .into_response();
+    }
+
     let user = User {
         id: Uuid::new_v4().to_string(),
-        username: creds.username,
-        password_hash: password_auth::generate_hash(&creds.password),
+        username,
+        password_hash: password_auth::generate_hash(password),
     };
 
     let result = sqlx::query("insert into users (id, username, password_hash) values (?, ?, ?)")
@@ -93,27 +106,71 @@ pub async fn register(
     match result {
         Ok(_) => {}
         Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {
-            return StatusCode::CONFLICT.into_response();
+            return (
+                StatusCode::CONFLICT,
+                Json(json!({"error" : "username already exists"})),
+            )
+                .into_response();
         }
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "failed to fetch from db"})),
+            )
+                .into_response();
+        }
     };
 
     if auth.login(&user).await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "failed to login user"})),
+        )
+            .into_response();
     }
 
     Redirect::to("/me").into_response()
 }
 
 pub async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> impl IntoResponse {
-    let user = match auth.authenticate(creds).await {
+    let username = creds.username.trim().to_string();
+    if username.len() > 32 || username.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid username or password"})),
+        )
+            .into_response();
+    }
+
+    let valid_creds = Credentials {
+        username,
+        password: creds.password,
+    };
+
+    let user = match auth.authenticate(valid_creds).await {
         Ok(Some(user)) => user,
-        Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "invalid username or password"})),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "failed to authenticate user"})),
+            )
+                .into_response();
+        }
     };
 
     if auth.login(&user).await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "failed to login user"})),
+        )
+            .into_response();
     }
 
     Redirect::to("/me").into_response()
@@ -121,7 +178,11 @@ pub async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> 
 
 pub async fn logout(mut auth: AppAuthSession) -> impl IntoResponse {
     if auth.logout().await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "failed to logout user"})),
+        )
+            .into_response();
     }
 
     StatusCode::NO_CONTENT.into_response()
@@ -130,6 +191,12 @@ pub async fn logout(mut auth: AppAuthSession) -> impl IntoResponse {
 pub async fn me(auth: AppAuthSession) -> impl IntoResponse {
     match auth.user {
         Some(user) => format!("Hello {}", user.username).into_response(),
-        None => return StatusCode::UNAUTHORIZED.into_response(),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "user not found"})),
+            )
+                .into_response();
+        }
     }
 }

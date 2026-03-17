@@ -1,4 +1,5 @@
 use axum::{
+    Json,
     extract::{
         Path, State, WebSocketUpgrade,
         ws::{Message, WebSocket},
@@ -7,6 +8,7 @@ use axum::{
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
+use serde_json::json;
 use shared::{ChatMessage, ClientEvent, ServerEvent};
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
@@ -26,7 +28,13 @@ pub async fn ws_handler(
     // reject unauthenticated mfs
     let user = match auth.user {
         Some(user) => user,
-        None => return StatusCode::UNAUTHORIZED.into_response(),
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error" : "unauthorized access"})),
+            )
+                .into_response();
+        }
     };
 
     ws.on_upgrade(move |socket| handle_socket(socket, room_id, state, user))
@@ -161,7 +169,7 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState, user
     }) {
         Ok(msg) => msg,
         Err(err) => {
-            error!(%err, %user_id, %room_id, "failed to serialize join event");
+            error!(%err, %user_id, %room_id, "failed to serialize leave event");
             return;
         }
     };
