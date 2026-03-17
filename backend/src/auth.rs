@@ -6,7 +6,9 @@ use axum::{
 use axum_login::{AuthSession, AuthUser, AuthnBackend};
 use serde::Deserialize;
 use serde_json::json;
+use shared::MeResponse;
 use sqlx::SqlitePool;
+use tracing::error;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -26,7 +28,7 @@ impl AuthUser for User {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Credentials {
     username: String,
     password: String,
@@ -135,6 +137,7 @@ pub async fn register(
 pub async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> impl IntoResponse {
     let username = creds.username.trim().to_string();
     if username.len() > 32 || username.is_empty() {
+        error!("invalid username length");
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "invalid username or password"})),
@@ -147,9 +150,10 @@ pub async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> 
         password: creds.password,
     };
 
-    let user = match auth.authenticate(valid_creds).await {
+    let user = match auth.authenticate(valid_creds.clone()).await {
         Ok(Some(user)) => user,
         Ok(None) => {
+            error!("invalid credentials {:?}", &valid_creds);
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(json!({"error": "invalid username or password"})),
@@ -157,6 +161,7 @@ pub async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> 
                 .into_response();
         }
         Err(_) => {
+            error!("failed to authenticate user {:?}", &valid_creds);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "failed to authenticate user"})),
@@ -190,7 +195,10 @@ pub async fn logout(mut auth: AppAuthSession) -> impl IntoResponse {
 
 pub async fn me(auth: AppAuthSession) -> impl IntoResponse {
     match auth.user {
-        Some(user) => format!("Hello {}", user.username).into_response(),
+        Some(user) => Json(MeResponse {
+            username: user.username,
+        })
+        .into_response(),
         None => {
             return (
                 StatusCode::UNAUTHORIZED,

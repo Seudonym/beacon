@@ -41,3 +41,8 @@ pub enum ServerEvent {
     UserJoined { user_id: String, room_id: String },
     UserLeft { user_id: String, room_id: String },
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MeResponse {
+    pub username: String,
+}

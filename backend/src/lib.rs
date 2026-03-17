@@ -1,12 +1,14 @@
 use anyhow::Context;
 use axum::{
     Router,
+    http::{HeaderValue, Method},
     routing::{get, post},
 };
 use axum_login::AuthManagerLayerBuilder;
 use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::RwLock;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_sessions::{
     Expiry, SessionManagerLayer,
     cookie::{Key, time::Duration},
@@ -44,12 +46,23 @@ pub async fn build_app(db: SqlitePool, session_secret: [u8; 64]) -> anyhow::Resu
         rooms: Arc::new(RwLock::new(HashMap::new())),
     };
 
+    let cors = CorsLayer::new()
+        .allow_credentials(true)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_origin(AllowOrigin::list([
+            HeaderValue::from_static("http://localhost:8080"),
+            HeaderValue::from_static("http://127.0.0.1:8080"),
+            HeaderValue::from_static("http://localhost:3000"),
+            HeaderValue::from_static("http://127.0.0.1:3000"),
+        ]));
+
     Ok(Router::new()
         .route("/register", post(register))
         .route("/login", post(login))
         .route("/logout", post(logout))
         .route("/me", get(me))
         .route("/chat/{room}", get(ws_handler))
+        .layer(cors)
         .layer(auth_layer)
         .with_state(state))
 }
