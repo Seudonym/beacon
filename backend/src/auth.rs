@@ -1,8 +1,4 @@
-use axum::{
-    Form, Json,
-    http::StatusCode,
-    response::{IntoResponse, Redirect},
-};
+use axum::{Form, Json, http::StatusCode, response::IntoResponse};
 use axum_login::{AuthSession, AuthUser, AuthnBackend};
 use serde::Deserialize;
 use serde_json::json;
@@ -131,7 +127,10 @@ pub async fn register(
             .into_response();
     }
 
-    Redirect::to("/me").into_response()
+    Json(MeResponse {
+        username: user.username,
+    })
+    .into_response()
 }
 
 pub async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> impl IntoResponse {
@@ -178,7 +177,10 @@ pub async fn login(mut auth: AppAuthSession, Form(creds): Form<Credentials>) -> 
             .into_response();
     }
 
-    Redirect::to("/me").into_response()
+    Json(MeResponse {
+        username: user.username,
+    })
+    .into_response()
 }
 
 pub async fn logout(mut auth: AppAuthSession) -> impl IntoResponse {

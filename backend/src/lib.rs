@@ -136,7 +136,7 @@ mod tests {
             .await
             .expect("register response");
 
-        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let cookie = cookie_header(&response);
 
@@ -157,7 +157,7 @@ mod tests {
             .expect("read me body");
         assert_eq!(
             std::str::from_utf8(&body).expect("utf8 body"),
-            "Hello alice"
+            r#"{"username":"alice"}"#
         );
     }
 
@@ -173,7 +173,7 @@ mod tests {
             .expect("first register request");
 
         let response = app.clone().oneshot(first).await.expect("first register");
-        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let second = Request::builder()
             .method("POST")
@@ -197,7 +197,7 @@ mod tests {
             .body(Body::from("username=alice&password=secret123"))
             .expect("register request");
         let response = app.clone().oneshot(register).await.expect("register");
-        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let login = Request::builder()
             .method("POST")
@@ -221,7 +221,7 @@ mod tests {
             .body(Body::from("username=alice&password=secret123"))
             .expect("register request");
         let response = app.clone().oneshot(register).await.expect("register");
-        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let cookie = cookie_header(&response);
 
@@ -242,7 +242,7 @@ mod tests {
             .expect("login request");
         let response = app.clone().oneshot(login).await.expect("login");
 
-        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let cookie = cookie_header(&response);
         let response = app
@@ -262,7 +262,7 @@ mod tests {
             .expect("read me body");
         assert_eq!(
             std::str::from_utf8(&body).expect("utf8 body"),
-            "Hello alice"
+            r#"{"username":"alice"}"#
         );
     }
 
