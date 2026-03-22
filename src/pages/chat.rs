@@ -23,6 +23,12 @@ struct ChatEntry {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+struct RenderedChatEntry {
+    entry: ChatEntry,
+    show_header: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum ChatEntryKind {
     Info,
     Message,
@@ -50,6 +56,7 @@ pub fn ChatPage() -> impl IntoView {
     let draft = RwSignal::new(String::new());
     let socket = RwSignal::new(Option::<WebSocket>::None);
     let messages_container = NodeRef::<Div>::new();
+    let rendered_messages = Memo::new(move |_| collapse_messages(&messages.get()));
 
     let navigate_for_auth = navigate.clone();
     Effect::new(move |_| {
@@ -237,14 +244,9 @@ pub fn ChatPage() -> impl IntoView {
     view! {
         <section class="w-full max-w-5xl border border-orange-500/40 bg-surface shadow-2xl">
             <div class="flex flex-col gap-4 border-b border-orange-950 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                <div>
-                    <p class="text-xs font-semibold uppercase tracking-widest text-orange-400">
-                        "Beacon Room"
-                    </p>
-                    <h1 class="mt-2 text-2xl font-semibold uppercase tracking-wide text-orange-50">
-                        {move || format!("#{}", room_id.get())}
-                    </h1>
-                </div>
+                <h1 class="text-2xl font-semibold uppercase tracking-wide text-orange-50">
+                    {move || format!("#{}", room_id.get())}
+                </h1>
 
                 <div class="flex items-center gap-3">
                     <p class="hidden text-xs uppercase tracking-wider text-muted sm:block">
@@ -286,36 +288,44 @@ pub fn ChatPage() -> impl IntoView {
                 >
                     <div class="space-y-1">
                         <For
-                            each=move || messages.get()
-                            key=|entry| {
-                                format!("{:?}::{:?}::{}", entry.author, entry.meta, entry.body)
+                            each=move || rendered_messages.get()
+                            key=|item| {
+                                format!(
+                                    "{:?}::{:?}::{}::{}",
+                                    item.entry.author,
+                                    item.entry.meta,
+                                    item.entry.body,
+                                    item.show_header,
+                                )
                             }
-                            children=move |entry| {
-                                let class = match entry.kind {
-                                    ChatEntryKind::Info => "text-orange-100/50 text-center",
+                            children=move |item| {
+                                let class = match item.entry.kind {
+                                    ChatEntryKind::Info => {
+                                        "flex min-h-8 items-center justify-center text-orange-100/50 text-center"
+                                    }
                                     ChatEntryKind::Message => "text-stone-100",
                                 };
 
                                 view! {
                                     <article class=format!(
-                                        " hover:bg-white/20 transition-color duration-200 px-3 py-1 {} ",
+                                        "hover:bg-white/20 transition-color duration-200 px-3 {} ",
                                         class,
                                     )>
-                                        {if let Some(author) = entry.author {
+                                        {if item.show_header {
                                             view! {
-                                                <div class="flex items-baseline justify-between gap-3">
+                                                <div class="flex items-baseline justify-between gap-3 my-2">
                                                     <p class="text-sm font-semibold text-orange-200">
-                                                        {author}
+                                                        {item.entry.author.clone().unwrap_or_default()}
                                                     </p>
                                                     <p class="text-xs uppercase tracking-wider text-orange-300/80">
-                                                        {entry.meta.unwrap_or_default()}
+                                                        {item.entry.meta.clone().unwrap_or_default()}
                                                     </p>
                                                 </div>
                                             }
                                                 .into_any()
                                         } else {
                                             view! {}.into_any()
-                                        }} <p class="text-sm leading-6">{entry.body}</p>
+                                        }} <p class="text-sm">{item.entry.body}</p>
                                     </article>
                                 }
                             }
@@ -358,6 +368,36 @@ fn websocket_url(room: &str) -> String {
         .unwrap_or(base);
 
     format!("{scheme}{host}/chat/{room}")
+}
+
+fn collapse_messages(entries: &[ChatEntry]) -> Vec<RenderedChatEntry> {
+    let mut rendered = Vec::with_capacity(entries.len());
+    let mut last_author: Option<String> = None;
+    let mut last_meta: Option<String> = None;
+
+    for entry in entries.iter().cloned() {
+        let show_header = match entry.kind {
+            ChatEntryKind::Info => true,
+            ChatEntryKind::Message => {
+                let author = entry.author.clone();
+                let meta = entry.meta.clone();
+                let repeated = author.is_some() && author == last_author && meta == last_meta;
+                !repeated
+            }
+        };
+
+        if entry.kind == ChatEntryKind::Message {
+            last_author = entry.author.clone();
+            last_meta = entry.meta.clone();
+        } else {
+            last_author = None;
+            last_meta = None;
+        }
+
+        rendered.push(RenderedChatEntry { entry, show_header });
+    }
+
+    rendered
 }
 
 fn format_chat_time(timestamp: &str) -> String {
