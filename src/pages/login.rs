@@ -98,13 +98,13 @@ pub fn LoginPage() -> impl IntoView {
     };
 
     view! {
-        <section class="w-full max-w-sm border border-orange-500/40 bg-surface p-5 shadow-[10px_10px_0_0_rgba(0,0,0,0.55)]">
-            <p class="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-400">"Beacon Access"</p>
-            <h1 class="mt-2 text-2xl font-semibold uppercase tracking-[0.08em] text-orange-50">"Login"</h1>
+        <section class="w-full max-w-sm border border-orange-500/40 bg-surface p-5 shadow-2xl">
+            <p class="text-xs font-semibold uppercase tracking-widest text-orange-400">"Beacon Access"</p>
+            <h1 class="mt-2 text-2xl font-semibold uppercase tracking-wide text-orange-50">"Login"</h1>
 
             <form class="mt-5 space-y-4" on:submit=on_submit>
                 <label class="block">
-                    <span class="mb-1 block text-[11px] font-medium uppercase tracking-[0.18em] text-muted">"Username"</span>
+                    <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-muted">"Username"</span>
                     <input
                         class="w-full border border-orange-950 bg-surface-strong px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-orange-400"
                         id="username"
@@ -117,7 +117,7 @@ pub fn LoginPage() -> impl IntoView {
                 </label>
 
                 <label class="block">
-                    <span class="mb-1 block text-[11px] font-medium uppercase tracking-[0.18em] text-muted">"Password"</span>
+                    <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-muted">"Password"</span>
                     <input
                         class="w-full border border-orange-950 bg-surface-strong px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-orange-400"
                         id="password"
@@ -141,7 +141,7 @@ pub fn LoginPage() -> impl IntoView {
                 }}
 
                 <button
-                    class="w-full border border-orange-500 bg-orange-500 px-3 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    class="w-full border border-orange-500 bg-orange-500 px-3 py-2.5 text-sm font-semibold uppercase tracking-wider text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
                     type="submit"
                     disabled=move || loading.get()
                 >

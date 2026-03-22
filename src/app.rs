@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::components::{Route, Router, Routes};
 
-use crate::pages::{LoginPage, MePage, NotFoundPage};
+use crate::pages::{ChatPage, LoginPage, MePage, NotFoundPage};
 
 pub fn backend_base_url() -> &'static str {
     "http://localhost:3000"
@@ -22,6 +22,7 @@ pub fn App() -> impl IntoView {
                     <Routes fallback=|| view! { <NotFoundPage /> }>
                         <Route path=leptos_router::path!("/login") view=LoginPage />
                         <Route path=leptos_router::path!("/me") view=MePage />
+                        <Route path=leptos_router::path!("/chat/:room") view=ChatPage />
                     </Routes>
                 </div>
             </main>

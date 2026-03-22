@@ -69,9 +69,11 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState, user
 
     // send join notification
     let user_id = user.id;
+    let username = user.username;
 
     let join_msg = match serde_json::to_string(&ServerEvent::UserJoined {
         user_id: user_id.clone(),
+        username: username.clone(),
         room_id: room_id.clone(),
     }) {
         Ok(msg) => msg,
@@ -85,7 +87,7 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState, user
         warn!(%err, %user_id, %room_id, "failed to broadcast join event");
     }
 
-    info!(%user_id, %room_id, "user joined room");
+    info!(%user_id, %username, %room_id, "user joined room");
 
     // configure the ws_sender to send messages from rx
     let mut send_task = tokio::spawn(async move {
@@ -100,6 +102,7 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState, user
     // configure ws_reciever to recieve messages and send to tx
     let recv_tx = tx.clone();
     let recv_user_id = user_id.clone();
+    let recv_username = username.clone();
     let recv_room_id = room_id.clone();
     let mut recv_task = tokio::spawn(async move {
         // keep fetching from client
@@ -128,6 +131,7 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState, user
                                     message: ChatMessage::new(
                                         message_id,
                                         recv_user_id.clone(),
+                                        recv_username.clone(),
                                         recv_room_id.clone(),
                                         chrono::Utc::now().to_rfc3339(),
                                         text,
@@ -165,6 +169,7 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState, user
 
     let leave_msg = match serde_json::to_string(&ServerEvent::UserLeft {
         user_id: user_id.clone(),
+        username: username.clone(),
         room_id: room_id.clone(),
     }) {
         Ok(msg) => msg,
@@ -176,5 +181,5 @@ async fn handle_socket(socket: WebSocket, room_id: String, state: AppState, user
 
     let _ = tx.send(leave_msg);
 
-    info!(%user_id, %room_id, "user disconnected");
+    info!(%user_id, %username, %room_id, "user disconnected");
 }

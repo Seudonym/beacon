@@ -76,16 +76,16 @@ pub fn MePage() -> impl IntoView {
 
     view! {
         <section class="w-full max-w-md">
-            <div class="border border-orange-500/40 bg-surface px-6 py-7 shadow-[10px_10px_0_0_rgba(0,0,0,0.55)] sm:px-8">
-                <p class="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-400">
+            <div class="border border-orange-500/40 bg-surface px-6 py-7 shadow-2xl sm:px-8">
+                <p class="text-xs font-semibold uppercase tracking-widest text-orange-400">
                     "Beacon Session"
                 </p>
-                <h1 class="mt-3 text-3xl font-semibold uppercase tracking-[0.08em] text-orange-50 sm:text-4xl">
+                <h1 class="mt-3 text-3xl font-semibold uppercase tracking-wide text-orange-50 sm:text-4xl">
                     "Your Account"
                 </h1>
 
                 <div class="mt-8 border border-orange-950 bg-surface-strong p-4">
-                    <p class="text-[10px] uppercase tracking-[0.24em] text-orange-300/80">
+                    <p class="text-xs uppercase tracking-wider text-orange-300/80">
                         "Username"
                     </p>
                     <p class="mt-3 text-lg font-semibold text-orange-50">
@@ -111,13 +111,25 @@ pub fn MePage() -> impl IntoView {
                         })
                 }}
 
-                <button
-                    class="mt-8 w-full border border-orange-500 bg-orange-500 px-3 py-2.5 text-sm font-semibold uppercase tracking-[0.18em] text-black transition hover:bg-orange-400"
-                    on:click=on_logout
-                    disabled=move || loading.get()
-                >
-                    "Logout"
-                </button>
+                <div class="mt-8 flex gap-3">
+                    <button
+                        class="flex-1 border border-orange-500 bg-orange-500 px-3 py-2.5 text-sm font-semibold uppercase tracking-wider text-black transition hover:bg-orange-400"
+                        on:click=move |_| {
+                            let _ = navigate("/chat/lobby", Default::default());
+                        }
+                        disabled=move || loading.get()
+                    >
+                        "Open Chat"
+                    </button>
+
+                    <button
+                        class="flex-1 border border-orange-700 bg-transparent px-3 py-2.5 text-sm font-semibold uppercase tracking-wider text-orange-200 transition hover:border-orange-500 hover:bg-orange-950"
+                        on:click=on_logout
+                        disabled=move || loading.get()
+                    >
+                        "Logout"
+                    </button>
+                </div>
             </div>
         </section>
     }

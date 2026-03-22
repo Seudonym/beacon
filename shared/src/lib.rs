@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub struct ChatMessage {
     pub message_id: String,
     pub user_id: String,
+    pub username: String,
     pub room_id: String,
     pub timestamp: String,
     pub text: String,
@@ -13,6 +14,7 @@ impl ChatMessage {
     pub fn new(
         message_id: String,
         user_id: String,
+        username: String,
         room_id: String,
         timestamp: String,
         text: String,
@@ -20,6 +22,7 @@ impl ChatMessage {
         Self {
             message_id,
             user_id,
+            username,
             room_id,
             timestamp,
             text,
@@ -38,8 +41,8 @@ pub enum ClientEvent {
 #[serde(tag = "type")]
 pub enum ServerEvent {
     NewMessage { message: ChatMessage },
-    UserJoined { user_id: String, room_id: String },
-    UserLeft { user_id: String, room_id: String },
+    UserJoined { user_id: String, username: String, room_id: String },
+    UserLeft { user_id: String, username: String, room_id: String },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
