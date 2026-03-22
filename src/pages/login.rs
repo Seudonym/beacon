@@ -11,10 +11,37 @@ const SESSION_USERNAME_KEY: &str = "beacon.username";
 #[component]
 pub fn LoginPage() -> impl IntoView {
     let navigate = use_navigate();
+    let navigate_for_session = navigate.clone();
     let username = RwSignal::new(String::new());
     let password = RwSignal::new(String::new());
     let error_msg = RwSignal::new(Option::<String>::None);
     let loading = RwSignal::new(false);
+
+    Effect::new(move |_| {
+        let navigate = navigate_for_session.clone();
+
+        leptos::task::spawn_local(async move {
+            let me_url = format!("{}/me", backend_base_url());
+            let result = Request::get(&me_url)
+                .credentials(RequestCredentials::Include)
+                .send()
+                .await;
+
+            if let Ok(resp) = result {
+                if resp.status() == 200 {
+                    if let Ok(data) = resp.json::<MeResponse>().await {
+                        if let Some(window) = web_sys::window() {
+                            if let Ok(Some(storage)) = window.session_storage() {
+                                let _ = storage.set_item(SESSION_USERNAME_KEY, &data.username);
+                            }
+                        }
+                    }
+
+                    let _ = navigate("/me", Default::default());
+                }
+            }
+        });
+    });
 
     let on_submit = move |ev: leptos::ev::SubmitEvent| {
         let navigate = navigate.clone();
