@@ -1,2 +1,32 @@
 @import "tailwindcss";
 @source "./src";
+
+@theme {
+  --color-background: #120b05;
+  --color-surface: #1d1208;
+  --color-surface-strong: #0c0703;
+  --color-foreground: #f2dcc2;
+  --color-muted: #b79268;
+  --color-accent: #f97316;
+  --color-accent-strong: #c2410c;
+  --color-danger: #dc2626;
+}
+
+@layer base {
+  :root {
+    color: var(--color-foreground);
+    background-color: var(--color-background);
+  }
+
+  body {
+    min-height: 100vh;
+    background:
+      linear-gradient(180deg, rgba(249, 115, 22, 0.08), transparent 28%),
+      linear-gradient(135deg, #120b05 0%, #050301 100%);
+    color: var(--color-foreground);
+  }
+
+  * {
+    border-radius: 0;
+  }
+}

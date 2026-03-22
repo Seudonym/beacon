@@ -5,4 +5,4 @@ target = "index.html"
 tailwindcss = "4.0.17"
 
 [watch]
-ignore = ["./dist", "./target"]
+ignore = ["./dist", "./target", "./backend"]
