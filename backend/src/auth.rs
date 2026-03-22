@@ -197,10 +197,13 @@ pub async fn logout(mut auth: AppAuthSession) -> impl IntoResponse {
 
 pub async fn me(auth: AppAuthSession) -> impl IntoResponse {
     match auth.user {
-        Some(user) => Json(MeResponse {
-            username: user.username,
-        })
-        .into_response(),
+        Some(user) => (
+            StatusCode::OK,
+            Json(MeResponse {
+                username: user.username,
+            }),
+        )
+            .into_response(),
         None => {
             return (
                 StatusCode::UNAUTHORIZED,
