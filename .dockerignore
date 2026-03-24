@@ -1,0 +1,9 @@
+target
+dist
+.git
+.gitignore
+app.db
+backend/app.db
+*.db
+*.db-shm
+*.db-wal

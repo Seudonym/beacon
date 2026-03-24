@@ -4,7 +4,7 @@ use leptos_router::hooks::use_navigate;
 use shared::MeResponse;
 use web_sys::RequestCredentials;
 
-use crate::app::{backend_base_url, encode_form_component};
+use crate::app::{api_base_url, encode_form_component};
 
 const SESSION_USERNAME_KEY: &str = "beacon.username";
 
@@ -21,7 +21,7 @@ pub fn LoginPage() -> impl IntoView {
         let navigate = navigate_for_session.clone();
 
         leptos::task::spawn_local(async move {
-            let me_url = format!("{}/me", backend_base_url());
+            let me_url = format!("{}/me", api_base_url());
             let result = Request::get(&me_url)
                 .credentials(RequestCredentials::Include)
                 .send()
@@ -60,7 +60,7 @@ pub fn LoginPage() -> impl IntoView {
             encode_form_component(&username_value),
             encode_form_component(&password_value)
         );
-        let login_url = format!("{}/login", backend_base_url());
+        let login_url = format!("{}/login", api_base_url());
 
         loading.set(true);
         error_msg.set(None);

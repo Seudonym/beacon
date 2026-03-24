@@ -4,10 +4,11 @@ use leptos_router::{
     params::Params,
 };
 use shared::{ClientEvent, MeResponse, ServerEvent};
+use std::{cell::Cell, rc::Rc};
 use wasm_bindgen::{JsCast, closure::Closure};
 use web_sys::{ErrorEvent, Event, MessageEvent, RequestCredentials, WebSocket};
 
-use crate::app::backend_base_url;
+use crate::app::{api_base_url, websocket_base_url};
 
 #[derive(Clone, Params, PartialEq)]
 struct ChatParams {
@@ -16,6 +17,7 @@ struct ChatParams {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ChatEntry {
+    id: String,
     kind: ChatEntryKind,
     author: Option<String>,
     body: String,
@@ -57,13 +59,14 @@ pub fn ChatPage() -> impl IntoView {
     let socket = RwSignal::new(Option::<WebSocket>::None);
     let messages_container = NodeRef::<Div>::new();
     let rendered_messages = Memo::new(move |_| collapse_messages(&messages.get()));
+    let next_local_entry_id = Rc::new(Cell::new(0_u64));
 
     let navigate_for_auth = navigate.clone();
     Effect::new(move |_| {
         let navigate = navigate_for_auth.clone();
 
         leptos::task::spawn_local(async move {
-            let me_url = format!("{}/me", backend_base_url());
+            let me_url = format!("{}/me", api_base_url());
             match gloo_net::http::Request::get(&me_url)
                 .credentials(RequestCredentials::Include)
                 .send()
@@ -121,12 +124,14 @@ pub fn ChatPage() -> impl IntoView {
         ws.set_onopen(Some(on_open.as_ref().unchecked_ref()));
         on_open.forget();
 
+        let next_local_entry_id = next_local_entry_id.clone();
         let on_message = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
             if let Some(text) = event.data().as_string() {
                 match serde_json::from_str::<ServerEvent>(&text) {
                     Ok(ServerEvent::NewMessage { message }) => {
                         messages.update(|items| {
                             items.push(ChatEntry {
+                                id: message.message_id,
                                 kind: ChatEntryKind::Message,
                                 author: Some(message.username),
                                 body: message.text,
@@ -137,6 +142,7 @@ pub fn ChatPage() -> impl IntoView {
                     Ok(ServerEvent::UserJoined { username, .. }) => {
                         messages.update(|items| {
                             items.push(ChatEntry {
+                                id: next_chat_entry_id(&next_local_entry_id, "join"),
                                 kind: ChatEntryKind::Info,
                                 author: None,
                                 meta: None,
@@ -147,6 +153,7 @@ pub fn ChatPage() -> impl IntoView {
                     Ok(ServerEvent::UserLeft { username, .. }) => {
                         messages.update(|items| {
                             items.push(ChatEntry {
+                                id: next_chat_entry_id(&next_local_entry_id, "leave"),
                                 kind: ChatEntryKind::Info,
                                 author: None,
                                 meta: None,
@@ -221,7 +228,7 @@ pub fn ChatPage() -> impl IntoView {
     let logout = move |_| {
         let navigate = navigate_for_logout.clone();
         leptos::task::spawn_local(async move {
-            let logout_url = format!("{}/logout", backend_base_url());
+            let logout_url = format!("{}/logout", api_base_url());
             let response = gloo_net::http::Request::post(&logout_url)
                 .credentials(RequestCredentials::Include)
                 .send()
@@ -289,15 +296,7 @@ pub fn ChatPage() -> impl IntoView {
                     <div class="space-y-1">
                         <For
                             each=move || rendered_messages.get()
-                            key=|item| {
-                                format!(
-                                    "{:?}::{:?}::{}::{}",
-                                    item.entry.author,
-                                    item.entry.meta,
-                                    item.entry.body,
-                                    item.show_header,
-                                )
-                            }
+                            key=|item| item.entry.id.clone()
                             children=move |item| {
                                 let class = match item.entry.kind {
                                     ChatEntryKind::Info => {
@@ -313,8 +312,8 @@ pub fn ChatPage() -> impl IntoView {
                                     )>
                                         {if item.show_header {
                                             view! {
-                                                <div class="flex items-baseline justify-between gap-3 my-2">
-                                                    <p class="text-sm font-semibold text-orange-200">
+                                                <div class="flex items-baseline justify-between gap-3 mt-2">
+                                                    <p class="text-sm font-semibold text-orange-500">
                                                         {item.entry.author.clone().unwrap_or_default()}
                                                     </p>
                                                     <p class="text-xs uppercase tracking-wider text-orange-300/80">
@@ -335,6 +334,7 @@ pub fn ChatPage() -> impl IntoView {
 
                 <form class="mt-5 flex flex-col gap-3 sm:flex-row" on:submit=send_message>
                     <input
+                        autofocus
                         class="min-w-0 flex-1 border border-orange-950 bg-surface-strong px-4 py-3 text-sm text-foreground outline-none transition placeholder:text-muted focus:border-orange-400"
                         type="text"
                         placeholder="Send a message to the room"
@@ -355,19 +355,7 @@ pub fn ChatPage() -> impl IntoView {
 }
 
 fn websocket_url(room: &str) -> String {
-    let base = backend_base_url();
-    let scheme = if base.starts_with("https://") {
-        "wss://"
-    } else {
-        "ws://"
-    };
-
-    let host = base
-        .strip_prefix("http://")
-        .or_else(|| base.strip_prefix("https://"))
-        .unwrap_or(base);
-
-    format!("{scheme}{host}/chat/{room}")
+    format!("{}/{room}", websocket_base_url())
 }
 
 fn collapse_messages(entries: &[ChatEntry]) -> Vec<RenderedChatEntry> {
@@ -407,4 +395,10 @@ fn format_chat_time(timestamp: &str) -> String {
         .and_then(|time| time.get(..5))
         .map(str::to_string)
         .unwrap_or_else(|| "--:--".to_string())
+}
+
+fn next_chat_entry_id(counter: &Cell<u64>, prefix: &str) -> String {
+    let id = counter.get();
+    counter.set(id + 1);
+    format!("{prefix}-{id}")
 }

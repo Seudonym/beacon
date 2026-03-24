@@ -6,7 +6,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // setup env
-    dotenvy::dotenv()?;
+    let _ = dotenvy::dotenv();
 
     // setup logging
     tracing_subscriber::registry()

@@ -3,8 +3,41 @@ use leptos_router::components::{Route, Router, Routes};
 
 use crate::pages::{ChatPage, LoginPage, MePage, NotFoundPage, RegisterPage};
 
-pub fn backend_base_url() -> &'static str {
-    "http://localhost:3000"
+pub fn api_base_url() -> String {
+    compile_time_var("APP_API_BASE").unwrap_or_else(|| "/api".to_string())
+}
+
+pub fn websocket_base_url() -> String {
+    if let Some(url) = compile_time_var("APP_WS_BASE") {
+        return url;
+    }
+
+    let origin = browser_origin().unwrap_or_default();
+    let scheme = if origin.starts_with("https://") {
+        "wss://"
+    } else {
+        "ws://"
+    };
+
+    let host = origin
+        .strip_prefix("http://")
+        .or_else(|| origin.strip_prefix("https://"))
+        .unwrap_or(&origin);
+
+    format!("{scheme}{host}/ws")
+}
+
+fn browser_origin() -> Option<String> {
+    let window = web_sys::window()?;
+    window.location().origin().ok()
+}
+
+fn compile_time_var(name: &str) -> Option<String> {
+    match name {
+        "APP_API_BASE" => option_env!("APP_API_BASE").map(str::to_string),
+        "APP_WS_BASE" => option_env!("APP_WS_BASE").map(str::to_string),
+        _ => None,
+    }
 }
 
 pub fn encode_form_component(value: &str) -> String {

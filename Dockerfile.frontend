@@ -1,0 +1,15 @@
+FROM rust:bookworm AS builder
+
+RUN rustup target add wasm32-unknown-unknown
+RUN cargo install --locked trunk
+
+WORKDIR /app
+COPY . .
+RUN trunk build --release
+
+FROM nginx:1.27-alpine
+
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+EXPOSE 80

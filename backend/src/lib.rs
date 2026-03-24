@@ -57,11 +57,11 @@ pub async fn build_app(db: SqlitePool, session_secret: [u8; 64]) -> anyhow::Resu
         ]));
 
     Ok(Router::new()
-        .route("/register", post(register))
-        .route("/login", post(login))
-        .route("/logout", post(logout))
-        .route("/me", get(me))
-        .route("/chat/{room}", get(ws_handler))
+        .route("/api/register", post(register))
+        .route("/api/login", post(login))
+        .route("/api/logout", post(logout))
+        .route("/api/me", get(me))
+        .route("/ws/{room}", get(ws_handler))
         .layer(cors)
         .layer(auth_layer)
         .with_state(state))
@@ -128,7 +128,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/register")
+                    .uri("/api/register")
                     .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                     .body(Body::from("username=alice&password=secret123"))
                     .expect("register request"),
@@ -143,7 +143,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/me")
+                    .uri("/api/me")
                     .header(header::COOKIE, cookie)
                     .body(Body::empty())
                     .expect("me request"),
@@ -167,7 +167,7 @@ mod tests {
 
         let first = Request::builder()
             .method("POST")
-            .uri("/register")
+            .uri("/api/register")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from("username=alice&password=secret123"))
             .expect("first register request");
@@ -177,7 +177,7 @@ mod tests {
 
         let second = Request::builder()
             .method("POST")
-            .uri("/register")
+            .uri("/api/register")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from("username=alice&password=secret123"))
             .expect("second register request");
@@ -192,7 +192,7 @@ mod tests {
 
         let register = Request::builder()
             .method("POST")
-            .uri("/register")
+            .uri("/api/register")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from("username=alice&password=secret123"))
             .expect("register request");
@@ -201,7 +201,7 @@ mod tests {
 
         let login = Request::builder()
             .method("POST")
-            .uri("/login")
+            .uri("/api/login")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from("username=alice&password=wrongpass"))
             .expect("login request");
@@ -216,7 +216,7 @@ mod tests {
 
         let register = Request::builder()
             .method("POST")
-            .uri("/register")
+            .uri("/api/register")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from("username=alice&password=secret123"))
             .expect("register request");
@@ -227,7 +227,7 @@ mod tests {
 
         let logout = Request::builder()
             .method("POST")
-            .uri("/logout")
+            .uri("/api/logout")
             .header(header::COOKIE, cookie)
             .body(Body::empty())
             .expect("logout request");
@@ -236,7 +236,7 @@ mod tests {
 
         let login = Request::builder()
             .method("POST")
-            .uri("/login")
+            .uri("/api/login")
             .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
             .body(Body::from("username=alice&password=secret123"))
             .expect("login request");
@@ -248,7 +248,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/me")
+                    .uri("/api/me")
                     .header(header::COOKIE, cookie)
                     .body(Body::empty())
                     .expect("me request"),
@@ -273,7 +273,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/me")
+                    .uri("/api/me")
                     .body(Body::empty())
                     .expect("me request"),
             )
@@ -287,7 +287,7 @@ mod tests {
     async fn websocket_upgrade_requires_session() {
         let (base_url, server) = spawn_test_server().await;
 
-        let result = connect_async(format!("{base_url}/chat/test-room")).await;
+        let result = connect_async(format!("{base_url}/ws/test-room")).await;
         server.abort();
 
         match result {
