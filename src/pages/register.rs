@@ -9,7 +9,7 @@ use crate::app::{backend_base_url, encode_form_component};
 const SESSION_USERNAME_KEY: &str = "beacon.username";
 
 #[component]
-pub fn LoginPage() -> impl IntoView {
+pub fn RegisterPage() -> impl IntoView {
     let navigate = use_navigate();
     let navigate_for_session = navigate.clone();
     let username = RwSignal::new(String::new());
@@ -60,13 +60,13 @@ pub fn LoginPage() -> impl IntoView {
             encode_form_component(&username_value),
             encode_form_component(&password_value)
         );
-        let login_url = format!("{}/login", backend_base_url());
+        let register_url = format!("{}/register", backend_base_url());
 
         loading.set(true);
         error_msg.set(None);
 
         leptos::task::spawn_local(async move {
-            let result = Request::post(&login_url)
+            let result = Request::post(&register_url)
                 .credentials(RequestCredentials::Include)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .body(body)
@@ -89,7 +89,8 @@ pub fn LoginPage() -> impl IntoView {
 
                         navigate("/me", Default::default())
                     }
-                    401 => error_msg.set(Some("Invalid username or password.".into())),
+                    400 => error_msg.set(Some("Username must be 1-32 chars and password at least 8 chars.".into())),
+                    409 => error_msg.set(Some("That username is already taken.".into())),
                     _ => error_msg.set(Some("Something went wrong. Try again.".into())),
                 },
                 Err(_) => error_msg.set(Some("Network Error. Failed to reach server".into())),
@@ -99,24 +100,18 @@ pub fn LoginPage() -> impl IntoView {
 
     view! {
         <section class="w-full max-w-sm border border-orange-500/40 bg-surface p-5 shadow-2xl">
-            <p class="text-xs font-semibold uppercase tracking-widest text-orange-400">
-                "Beacon Access"
-            </p>
-            <h1 class="mt-2 text-2xl font-semibold uppercase tracking-wide text-orange-50">
-                "Login"
-            </h1>
-            <p class="mt-2 text-sm text-muted">"Sign in to continue chatting."</p>
+            <p class="text-xs font-semibold uppercase tracking-widest text-orange-400">"Beacon Access"</p>
+            <h1 class="mt-2 text-2xl font-semibold uppercase tracking-wide text-orange-50">"Register"</h1>
+            <p class="mt-2 text-sm text-muted">"Create an account to join the chat."</p>
 
             <form class="mt-5 space-y-4" on:submit=on_submit>
                 <label class="block">
-                    <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-muted">
-                        "Username"
-                    </span>
+                    <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-muted">"Username"</span>
                     <input
                         class="w-full border border-orange-950 bg-surface-strong px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-orange-400"
-                        id="username"
+                        id="register-username"
                         type="text"
-                        placeholder="Enter username"
+                        placeholder="Pick a username"
                         maxlength="32"
                         on:input=move |ev| username.set(event_target_value(&ev))
                         prop:value=username
@@ -124,14 +119,12 @@ pub fn LoginPage() -> impl IntoView {
                 </label>
 
                 <label class="block">
-                    <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-muted">
-                        "Password"
-                    </span>
+                    <span class="mb-1 block text-xs font-medium uppercase tracking-wider text-muted">"Password"</span>
                     <input
                         class="w-full border border-orange-950 bg-surface-strong px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-orange-400"
-                        id="password"
+                        id="register-password"
                         type="password"
-                        placeholder="Enter password"
+                        placeholder="At least 8 characters"
                         on:input=move |ev| password.set(event_target_value(&ev))
                         prop:value=password
                     />
@@ -154,17 +147,14 @@ pub fn LoginPage() -> impl IntoView {
                     type="submit"
                     disabled=move || loading.get()
                 >
-                    {move || if loading.get() { "Logging in..." } else { "Login" }}
+                    {move || if loading.get() { "Creating account..." } else { "Register" }}
                 </button>
             </form>
 
             <p class="mt-4 text-sm text-muted">
-                "Need an account? "
-                <a
-                    class="text-orange-300 underline underline-offset-4 hover:text-orange-200"
-                    href="/register"
-                >
-                    "Register"
+                "Already have an account? "
+                <a class="text-orange-300 underline underline-offset-4 hover:text-orange-200" href="/login">
+                    "Login"
                 </a>
             </p>
         </section>
