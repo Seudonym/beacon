@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::components::{Route, Router, Routes};
 
-use crate::pages::{ChatPage, LoginPage, MePage, NotFoundPage, RegisterPage};
+use crate::pages::{ChatPage, LandingPage, LoginPage, MePage, NotFoundPage, RegisterPage};
 
 pub fn api_base_url() -> String {
     compile_time_var("APP_API_BASE").unwrap_or_else(|| "/api".to_string())
@@ -53,6 +53,7 @@ pub fn App() -> impl IntoView {
             <main class="min-h-screen bg-background text-foreground">
                 <div class="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4 py-6 sm:px-6 sm:py-8">
                     <Routes fallback=|| view! { <NotFoundPage /> }>
+                        <Route path=leptos_router::path!("/") view=LandingPage />
                         <Route path=leptos_router::path!("/login") view=LoginPage />
                         <Route path=leptos_router::path!("/register") view=RegisterPage />
                         <Route path=leptos_router::path!("/me") view=MePage />
