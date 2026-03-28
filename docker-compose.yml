@@ -4,7 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile.backend
     environment:
-      SESSION_SECRET: ${SESSION_SECRET:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SESSION_SECRET: ${SESSION_SECRET}
     volumes:
       - backend-data:/app
 
@@ -15,7 +16,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
 
 volumes:
   backend-data:

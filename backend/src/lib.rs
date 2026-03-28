@@ -36,7 +36,7 @@ pub async fn build_app(db: SqlitePool, session_secret: [u8; 64]) -> anyhow::Resu
 
     let session_manager_layer = SessionManagerLayer::new(session_store)
         .with_private(Key::from(&session_secret))
-        .with_secure(false)
+        .with_secure(session_cookie_secure())
         .with_expiry(Expiry::OnInactivity(Duration::hours(1)));
 
     let backend = Backend { db };
@@ -73,6 +73,13 @@ pub fn session_secret_from_env() -> anyhow::Result<[u8; 64]> {
         .as_bytes()
         .try_into()
         .context("SESSION_SECRET must be exactly 64 bytes")
+}
+
+fn session_cookie_secure() -> bool {
+    match std::env::var("COOKIE_SECURE") {
+        Ok(value) => !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"),
+        Err(_) => true,
+    }
 }
 
 #[cfg(test)]
