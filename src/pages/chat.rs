@@ -56,10 +56,16 @@ pub fn ChatPage() -> impl IntoView {
     let error_msg = RwSignal::new(Option::<String>::None);
     let messages = RwSignal::new(Vec::<ChatEntry>::new());
     let draft = RwSignal::new(String::new());
+    let room_input = RwSignal::new(String::new());
     let socket = RwSignal::new(Option::<WebSocket>::None);
+    let socket_generation = RwSignal::new(0_u64);
     let messages_container = NodeRef::<Div>::new();
     let rendered_messages = Memo::new(move |_| collapse_messages(&messages.get()));
     let next_local_entry_id = Rc::new(Cell::new(0_u64));
+
+    Effect::new(move |_| {
+        room_input.set(room_id.get());
+    });
 
     let navigate_for_auth = navigate.clone();
     Effect::new(move |_| {
@@ -109,6 +115,13 @@ pub fn ChatPage() -> impl IntoView {
 
         messages.update(|items| items.clear());
 
+        let generation = socket_generation.get_untracked().wrapping_add(1);
+        socket_generation.set(generation);
+
+        if let Some(existing_socket) = socket.get_untracked() {
+            let _ = existing_socket.close();
+        }
+
         let ws_url = websocket_url(&room);
         let ws = match WebSocket::new(&ws_url) {
             Ok(ws) => ws,
@@ -157,7 +170,7 @@ pub fn ChatPage() -> impl IntoView {
                                 kind: ChatEntryKind::Info,
                                 author: None,
                                 meta: None,
-                                body: format!("{username} left"),
+                                body: format!("--- {username} left ---"),
                             });
                         });
                     }
@@ -178,13 +191,20 @@ pub fn ChatPage() -> impl IntoView {
 
         let navigate_on_close = navigate_for_socket.clone();
         let on_close = Closure::<dyn FnMut(Event)>::new(move |_: Event| {
-            socket.set(None);
+            if socket_generation.get_untracked() == generation {
+                socket.set(None);
+            }
             if username.get().is_none() {
                 let _ = navigate_on_close("/login", Default::default());
             }
         });
         ws.set_onclose(Some(on_close.as_ref().unchecked_ref()));
         on_close.forget();
+
+        let cleanup_socket = ws.clone();
+        on_cleanup(move || {
+            let _ = cleanup_socket.close();
+        });
 
         socket.set(Some(ws));
     });
@@ -248,12 +268,42 @@ pub fn ChatPage() -> impl IntoView {
         });
     };
 
+    let change_room = move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+
+        let next_room = room_input.get().trim().to_ascii_lowercase();
+        let target_room = if next_room.is_empty() {
+            "lobby".to_string()
+        } else {
+            next_room
+        };
+
+        if target_room == room_id.get_untracked() {
+            return;
+        }
+
+        let encoded_room = js_sys::encode_uri_component(&target_room)
+            .as_string()
+            .unwrap_or(target_room);
+        let _ = navigate(&format!("/chat/{encoded_room}"), Default::default());
+    };
+
     view! {
         <section class="w-full max-w-5xl border border-orange-500/40 bg-surface shadow-2xl">
             <div class="flex flex-col gap-4 border-b border-orange-950 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                <h1 class="text-2xl font-semibold uppercase tracking-wide text-orange-50">
-                    {move || format!("#{}", room_id.get())}
-                </h1>
+                <form class="min-w-0" on:submit=change_room>
+                    <label class="block border-b border-orange-500/40 pb-1 transition focus-within:border-orange-300">
+                        <input
+                            class="w-full min-w-0 bg-transparent px-0 py-0 text-2xl font-semibold uppercase tracking-wide text-orange-50 outline-none placeholder:text-orange-50"
+                            type="text"
+                            aria-label="Room name"
+                            on:input=move |ev| {
+                                room_input.set(event_target_value(&ev).to_ascii_lowercase())
+                            }
+                            prop:value=room_input
+                        />
+                    </label>
+                </form>
 
                 <div class="flex items-center gap-3">
                     <p class="hidden text-xs uppercase tracking-wider text-muted sm:block">
